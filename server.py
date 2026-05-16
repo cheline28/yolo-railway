@@ -34,8 +34,9 @@ def draw_detections(img_pil, results):
 
 @app.route("/detect", methods=["POST"])
 def detect():
-    global latest_frame, last_time
-    data = request.files["frame"].read() if "frame" in request.files else request.data
+    global last_time
+    if model is None:
+        return jsonify({"status":"loading","message":"Model sedang dimuat"}), 503
     if not data:
         return jsonify({"error": "Tidak ada frame"}), 400
 
