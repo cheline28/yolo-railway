@@ -1,4 +1,4 @@
-import os, time, threading, io
+import os, time, threading, io, gc
 import numpy as np
 from flask import Flask, request, jsonify, Response, render_template_string
 from ultralytics import YOLO
@@ -49,9 +49,8 @@ def detect():
     annotated, detections = draw_detections(img.copy(), results)
 
     buf = io.BytesIO()
-    annotated.save(buf, format="JPEG", quality=80)
+    annotated.save(buf, format="JPEG", quality=75) # Kompresi diturunkan ke 75 agar ukuran file lebih ringan di RAM
     
-    # Mengunci sebentar hanya untuk memperbarui data frame terbaru
     with lock:
         latest_frame = buf.getvalue()
 
@@ -65,6 +64,10 @@ def detect():
     stats["fps"] = round(1.0/avg if avg > 0 else 0, 1)
     stats["avg_inference_ms"] = round(inf_ms, 1)
 
+    # Memaksa Python membersihkan sampah memori sisa array gambar agar RAM tetap lega
+    if stats["total_frames"] % 10 == 0:
+        gc.collect()
+
     return jsonify({"status":"ok","count":len(detections),
                     "detections":detections,"inference_ms":round(inf_ms,2),"fps":stats["fps"]})
 
@@ -72,7 +75,6 @@ def detect():
 def stream():
     def gen():
         while True:
-            # FIX: Kunci dilepas dengan cepat setelah menyalin variabel frame agar tidak deadlock
             with lock:
                 frame = latest_frame
                 
@@ -84,7 +86,9 @@ def stream():
                 frame = buf.getvalue()
                 
             yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
-            time.sleep(0.03) # Jeda kecil untuk menghemat resource CPU Railway Anda
+            
+            # FIX: Jeda dinaikkan ke 0.15 detik agar server Railway aman dari Out of Memory
+            time.sleep(0.15) 
     return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 @app.route("/status")
@@ -104,7 +108,6 @@ def index():
     <script>
     async function r(){
         try {
-            // FIX: Menggunakan URL absolut Railway agar tidak diblokir Mixed Content oleh browser
             const d = await(await fetch('https://pestdetection.up.railway.app/status')).json();
             document.getElementById('fps').textContent = d.fps + ' FPS';
             document.getElementById('inf').textContent = d.avg_inference_ms + ' ms';
