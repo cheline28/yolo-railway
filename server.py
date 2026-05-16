@@ -50,6 +50,8 @@ def detect():
 
     buf = io.BytesIO()
     annotated.save(buf, format="JPEG", quality=80)
+    
+    # Mengunci sebentar hanya untuk memperbarui data frame terbaru
     with lock:
         latest_frame = buf.getvalue()
 
@@ -70,16 +72,19 @@ def detect():
 def stream():
     def gen():
         while True:
+            # FIX: Kunci dilepas dengan cepat setelah menyalin variabel frame agar tidak deadlock
             with lock:
                 frame = latest_frame
+                
             if frame is None:
                 img = Image.new("RGB",(320,240),(30,30,30))
                 ImageDraw.Draw(img).text((60,110),"Menunggu ESP32-CAM...",fill="gray")
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG")
                 frame = buf.getvalue()
+                
             yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
-            time.sleep(0.05)
+            time.sleep(0.03) # Jeda kecil untuk menghemat resource CPU Railway Anda
     return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 @app.route("/status")
@@ -95,12 +100,24 @@ def index():
     h1{color:#4fc3f7}img{border:2px solid #4fc3f7;border-radius:4px;max-width:100%}
     .s{background:#1e1e1e;padding:12px;border-radius:6px;margin-top:16px}
     .r{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #333}</style>
-    <script>async function r(){const d=await(await fetch('/status')).json();
-    document.getElementById('fps').textContent=d.fps+' FPS';
-    document.getElementById('inf').textContent=d.avg_inference_ms+' ms';
-    document.getElementById('fr').textContent=d.total_frames;
-    document.getElementById('det').textContent=d.total_detections;}
-    setInterval(r,1000);r();</script></head>
+    
+    <script>
+    async function r(){
+        try {
+            // FIX: Menggunakan URL absolut Railway agar tidak diblokir Mixed Content oleh browser
+            const d = await(await fetch('https://pestdetection.up.railway.app/status')).json();
+            document.getElementById('fps').textContent = d.fps + ' FPS';
+            document.getElementById('inf').textContent = d.avg_inference_ms + ' ms';
+            document.getElementById('fr').textContent = d.total_frames;
+            document.getElementById('det').textContent = d.total_detections;
+        } catch(e) {
+            console.error("Gagal mengambil data status:", e);
+        }
+    }
+    setInterval(r, 1000);
+    r();
+    </script></head>
+    
     <body><h1>ESP32-CAM + YOLOv8n</h1>
     <img src="/stream"><div class="s">
     <div class="r"><span>FPS</span><span id="fps">-</span></div>
