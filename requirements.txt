@@ -1,5 +1,6 @@
-numpy
-opencv-python-headless==4.8.1.78
 flask
+ultralytics
+opencv-python-headless
+numpy
 gunicorn
-ultralytics==8.1.0
+Pillow
